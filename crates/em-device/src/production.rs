@@ -25,6 +25,15 @@ struct DeviceProfile {
     model: String,
     mode: DeviceMode,
     firmware: String,
+    protocol: Option<ProtocolProfile>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProtocolProfile {
+    codec: String,
+    #[serde(default)]
+    operations_enabled: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,6 +52,8 @@ struct InventoryEntry {
     mode: DeviceMode,
     #[serde(default = "unknown_firmware")]
     firmware: String,
+    #[serde(default)]
+    protocol: Option<ProtocolProfile>,
 }
 
 impl DeviceInventory {
@@ -74,6 +85,7 @@ impl DeviceInventory {
                         model: entry.model,
                         mode: entry.mode,
                         firmware: entry.firmware,
+                        protocol: entry.protocol,
                     },
                 )
                 .is_some()
@@ -206,15 +218,36 @@ impl DeviceProvider for ProductionDeviceProvider {
         device_id: &str,
         _request: &TokenOperationRequest,
     ) -> DeviceResult {
+        let profile = self
+            .discover()
+            .ok()
+            .and_then(|devices| devices.into_iter().find(|device| device.id == device_id))
+            .and_then(|device| Some((device.vid?, device.pid?)))
+            .and_then(|key| self.inventory.profiles.get(&key));
+        let message = match profile.and_then(|profile| profile.protocol.as_ref()) {
+            None => "Device protocol is disabled by inventory",
+            Some(protocol) if !protocol.operations_enabled => {
+                "Device operations are disabled by inventory"
+            }
+            Some(protocol) => {
+                return DeviceResult {
+                    device_id: device_id.into(),
+                    success: false,
+                    message: format!("Protocol codec '{}' is not installed", protocol.codec),
+                    token_id: None,
+                    error: Some(AppError::new(
+                        ErrorCode::ProtocolMismatch,
+                        "No approved production codec is registered for this device",
+                    )),
+                };
+            }
+        };
         DeviceResult {
             device_id: device_id.into(),
             success: false,
-            message: "Production device protocol is not configured".into(),
+            message: message.into(),
             token_id: None,
-            error: Some(AppError::new(
-                ErrorCode::PermissionDenied,
-                "Operation disabled until the approved device protocol codec is installed",
-            )),
+            error: Some(AppError::new(ErrorCode::PermissionDenied, message)),
         }
     }
 }
@@ -286,6 +319,7 @@ mod tests {
                     model: "REF-A".into(),
                     mode: DeviceMode::Normal,
                     firmware: "unknown".into(),
+                    protocol: None,
                 },
             )]),
         };

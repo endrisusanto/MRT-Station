@@ -1,4 +1,5 @@
 mod production;
+pub mod protocol;
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 

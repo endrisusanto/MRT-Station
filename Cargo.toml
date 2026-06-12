@@ -19,6 +19,7 @@ rust-version = "1.85"
 anyhow = "1.0"
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
+crc32fast = "1.5"
 prost = "0.14"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
 rusb = { version = "0.9", features = ["vendored"] }

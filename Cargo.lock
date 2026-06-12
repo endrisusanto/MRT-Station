@@ -749,11 +749,13 @@ version = "0.1.1"
 dependencies = [
  "async-trait",
  "chrono",
+ "crc32fast",
  "em-core",
  "rusb",
  "serde",
  "serde_json",
  "serialport",
+ "thiserror 2.0.18",
  "tokio",
  "uuid",
 ]

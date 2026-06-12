@@ -8,10 +8,12 @@ rust-version.workspace = true
 [dependencies]
 async-trait.workspace = true
 chrono.workspace = true
+crc32fast.workspace = true
 em-core = { path = "../em-core" }
 rusb.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serialport.workspace = true
 tokio.workspace = true
+thiserror.workspace = true
 uuid.workspace = true

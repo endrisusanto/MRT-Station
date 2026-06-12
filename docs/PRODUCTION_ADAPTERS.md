@@ -36,3 +36,8 @@ This wire contract is a placeholder boundary and must be reconciled with the app
 - Stable IDs use VID, PID, and device serial number. Bus/address or port is used only when firmware exposes no serial number.
 - Unknown VID/PID pairs are never surfaced to Station.
 - Token operations deliberately fail closed until the approved framing, checksum, endpoints, command IDs, and response parser are implemented.
+- Inventory may declare a `protocol` object with `codec` and `operationsEnabled`, but the production codec registry is intentionally empty until an approved wire specification and golden captures are supplied.
+
+## Protocol engine baseline
+
+`em-device::protocol` supplies bounded framing, CRC32 integrity, request/response correlation, version checks, timeout handling, and retry only for timeout/disconnect failures. Its current `EM` frame layout is a laboratory test format, not an inferred production protocol, and is not connected to USB or serial transports.
