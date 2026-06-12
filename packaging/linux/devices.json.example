@@ -1,0 +1,20 @@
+{
+  "devices": [
+    {
+      "vid": "04e8",
+      "pid": "6860",
+      "displayName": "EM Production Device",
+      "model": "REPLACE-WITH-APPROVED-MODEL",
+      "mode": "normal",
+      "firmware": "unknown"
+    },
+    {
+      "vid": "04e8",
+      "pid": "685d",
+      "displayName": "EM Download Mode Device",
+      "model": "REPLACE-WITH-APPROVED-MODEL",
+      "mode": "download",
+      "firmware": "unknown"
+    }
+  ]
+}

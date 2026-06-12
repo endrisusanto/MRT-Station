@@ -9,6 +9,7 @@ Rust and Tauri replacement baseline for the legacy EM Station and JP Agent Servi
 - Cross-platform agent endpoint: Unix socket on Linux and named pipe on Windows.
 - Session lifecycle, permissions, asynchronous multi-device operations, cancellation, and per-device results.
 - Replaceable `DeviceProvider` boundary with two simulated development devices.
+- Production read-only USB and CDC/COM discovery filtered by an explicit VID/PID inventory.
 - Replaceable backend authenticator with native-root HTTPS, bounded timeouts, typed status mapping, and opaque session tokens.
 - Tauri v2 and React operator interface covering login, discovery, selection, token modes, expiry, install, remove, info, recovery, progress, and results.
 - systemd, udev, tmpfiles, Windows service scripts, and CI baselines.

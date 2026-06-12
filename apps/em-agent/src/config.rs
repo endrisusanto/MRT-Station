@@ -16,6 +16,7 @@ pub struct AgentConfig {
     pub backend_url: Option<String>,
     pub backend_timeout: Duration,
     pub backend_allow_http: bool,
+    pub device_inventory: PathBuf,
 }
 
 impl AgentConfig {
@@ -51,6 +52,9 @@ impl AgentConfig {
                 .as_deref()
                 .unwrap_or("false"),
         )?;
+        let device_inventory = std::env::var_os("EM_DEVICE_INVENTORY")
+            .map(PathBuf::from)
+            .unwrap_or_else(default_device_inventory);
 
         Ok(Self {
             endpoint,
@@ -59,8 +63,23 @@ impl AgentConfig {
             backend_url,
             backend_timeout,
             backend_allow_http,
+            device_inventory,
         })
     }
+}
+
+#[cfg(unix)]
+fn default_device_inventory() -> PathBuf {
+    "/etc/em-station/devices.json".into()
+}
+
+#[cfg(windows)]
+fn default_device_inventory() -> PathBuf {
+    std::env::var_os("ProgramData")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"))
+        .join("EM Station")
+        .join("devices.json")
 }
 
 fn parse_bool(name: &str, value: &str) -> anyhow::Result<bool> {

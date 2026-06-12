@@ -4,10 +4,11 @@ mod state;
 
 use std::sync::Arc;
 
-use anyhow::bail;
 use config::{AgentConfig, AgentMode};
 use em_backend::{Authenticator, HttpAuthenticator, SimulatorAuthenticator};
-use em_device::{DeviceProvider, SimulatedDeviceProvider};
+use em_device::{
+    DeviceInventory, DeviceProvider, ProductionDeviceProvider, SimulatedDeviceProvider,
+};
 use state::AgentState;
 use tracing_subscriber::EnvFilter;
 
@@ -33,9 +34,9 @@ async fn main() -> anyhow::Result<()> {
     };
     let provider: Arc<dyn DeviceProvider> = match config.mode {
         AgentMode::Simulator => Arc::new(SimulatedDeviceProvider::default()),
-        AgentMode::Production => bail!(
-            "production device adapters are not configured; set EM_AGENT_MODE=simulator only for authorized development"
-        ),
+        AgentMode::Production => Arc::new(ProductionDeviceProvider::new(DeviceInventory::load(
+            &config.device_inventory,
+        )?)),
     };
     server::run(&config, AgentState::new(provider, authenticator)).await
 }

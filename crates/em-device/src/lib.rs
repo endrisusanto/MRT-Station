@@ -1,3 +1,5 @@
+mod production;
+
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
@@ -7,6 +9,8 @@ use em_core::{
     TransportKind,
 };
 use tokio::sync::RwLock;
+
+pub use production::{DeviceInventory, ProductionDeviceProvider};
 
 #[async_trait]
 pub trait DeviceProvider: Send + Sync {
