@@ -1,0 +1,3 @@
+d /var/lib/em-station 0750 em-agent em-station -
+d /var/log/em-station 0750 em-agent em-station -
+

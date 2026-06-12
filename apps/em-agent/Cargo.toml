@@ -1,0 +1,22 @@
+[package]
+name = "em-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+em-core = { path = "../../crates/em-core" }
+em-device = { path = "../../crates/em-device" }
+em-protocol = { path = "../../crates/em-protocol" }
+secrecy.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.8"
+

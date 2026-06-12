@@ -1,0 +1,5 @@
+# Replace or extend this allowlist using the approved production VID/PID matrix.
+SUBSYSTEM=="usb", ATTR{idVendor}=="04e8", ATTR{idProduct}=="6860", MODE="0660", GROUP="em-station", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTR{idVendor}=="04e8", ATTR{idProduct}=="685d", MODE="0660", GROUP="em-station", TAG+="uaccess"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="04e8", MODE="0660", GROUP="em-station", TAG+="uaccess"
+

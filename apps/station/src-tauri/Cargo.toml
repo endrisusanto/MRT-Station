@@ -1,0 +1,22 @@
+[package]
+name = "station-tauri"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "station_tauri_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.4", features = [] }
+
+[dependencies]
+chrono.workspace = true
+em-core = { path = "../../../crates/em-core" }
+em-protocol = { path = "../../../crates/em-protocol" }
+serde.workspace = true
+tauri = { version = "2.9", features = [] }
+time.workspace = true
+uuid.workspace = true

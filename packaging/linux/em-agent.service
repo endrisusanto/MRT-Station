@@ -1,0 +1,31 @@
+[Unit]
+Description=EM Station Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/em-station/em-agent
+Environment=EM_AGENT_ENDPOINT=/run/em-station/agent.sock
+Environment=RUST_LOG=info
+RuntimeDirectory=em-station
+RuntimeDirectoryMode=0770
+User=em-agent
+Group=em-station
+Restart=on-failure
+RestartSec=2s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+ReadWritePaths=/run/em-station /var/log/em-station /var/lib/em-station
+
+[Install]
+WantedBy=multi-user.target
+

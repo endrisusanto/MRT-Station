@@ -1,0 +1,13 @@
+/target/
+/node_modules/
+/dist/
+/.idea/
+/.vscode/
+*.log
+*.sock
+
+# Legacy behavioral references stay local and are never published with source releases.
+/JPAgentServiceSetup.zip
+/JPAgentService_ubuntu.zip
+/Station_linux_v1.0.12.tar.gz
+/Station_windows_v1.0.12.zip
