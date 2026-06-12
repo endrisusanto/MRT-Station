@@ -7,6 +7,7 @@ Wants=network-online.target
 Type=simple
 ExecStart=/usr/libexec/em-station/em-agent
 Environment=EM_AGENT_ENDPOINT=/run/em-station/agent.sock
+Environment=EM_AGENT_MODE=production
 Environment=RUST_LOG=info
 RuntimeDirectory=em-station
 RuntimeDirectoryMode=0770
@@ -28,4 +29,3 @@ ReadWritePaths=/run/em-station /var/log/em-station /var/lib/em-station
 
 [Install]
 WantedBy=multi-user.target
-

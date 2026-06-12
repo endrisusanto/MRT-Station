@@ -17,7 +17,7 @@ Rust and Tauri replacement baseline for the legacy EM Station and JP Agent Servi
 Terminal 1:
 
 ```bash
-cargo run -p em-agent
+EM_AGENT_MODE=simulator cargo run -p em-agent
 ```
 
 Terminal 2:
@@ -28,7 +28,7 @@ npm install
 npm run tauri dev
 ```
 
-Any non-empty username and password is accepted by the development authenticator. Credentials remain in agent memory only and are cleared on logout or process exit.
+Simulator mode accepts any non-empty username and password. It is intended only for authorized development. Optimized agent builds default to production mode and refuse startup until approved backend and hardware adapters are configured. Credentials remain in agent memory only and are cleared on logout or process exit.
 
 ## Verify
 

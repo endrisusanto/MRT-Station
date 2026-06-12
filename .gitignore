@@ -1,6 +1,6 @@
-/target/
-/node_modules/
-/dist/
+target/
+node_modules/
+dist/
 /.idea/
 /.vscode/
 *.log

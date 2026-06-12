@@ -14,3 +14,4 @@ Before production release:
 
 The simulator must be disabled in release builds once production adapters are integrated.
 
+Release builds default to `EM_AGENT_MODE=production` and currently fail closed because those adapters have not been supplied. `EM_AGENT_MODE=simulator` must never be configured by production packages.

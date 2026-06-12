@@ -6,12 +6,28 @@ use em_core::{
 use uuid::Uuid;
 
 #[cfg(unix)]
-const DEFAULT_ENDPOINT: &str = "/tmp/em-station/agent.sock";
+const DEVELOPMENT_ENDPOINT: &str = "/tmp/em-station/agent.sock";
+#[cfg(unix)]
+const PRODUCTION_ENDPOINT: &str = "/run/em-station/agent.sock";
 #[cfg(windows)]
 const DEFAULT_ENDPOINT: &str = r"\\.\pipe\em-station-agent";
 
 fn endpoint() -> String {
-    std::env::var("EM_AGENT_ENDPOINT").unwrap_or_else(|_| DEFAULT_ENDPOINT.into())
+    std::env::var("EM_AGENT_ENDPOINT").unwrap_or_else(|_| default_endpoint().into())
+}
+
+#[cfg(unix)]
+fn default_endpoint() -> &'static str {
+    if cfg!(debug_assertions) {
+        DEVELOPMENT_ENDPOINT
+    } else {
+        PRODUCTION_ENDPOINT
+    }
+}
+
+#[cfg(windows)]
+fn default_endpoint() -> &'static str {
+    DEFAULT_ENDPOINT
 }
 
 async fn call(request: AgentRequest) -> Result<AgentResponse, String> {

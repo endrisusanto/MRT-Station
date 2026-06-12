@@ -14,6 +14,7 @@ mod unix {
         let endpoint = format!("/tmp/em-station/e2e-{}.sock", Uuid::new_v4());
         let mut agent = Command::new(env!("CARGO_BIN_EXE_em-agent"))
             .env("EM_AGENT_ENDPOINT", &endpoint)
+            .env("EM_AGENT_MODE", "simulator")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
