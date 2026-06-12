@@ -9,6 +9,7 @@ Rust and Tauri replacement baseline for the legacy EM Station and JP Agent Servi
 - Cross-platform agent endpoint: Unix socket on Linux and named pipe on Windows.
 - Session lifecycle, permissions, asynchronous multi-device operations, cancellation, and per-device results.
 - Replaceable `DeviceProvider` boundary with two simulated development devices.
+- Replaceable backend authenticator with native-root HTTPS, bounded timeouts, typed status mapping, and opaque session tokens.
 - Tauri v2 and React operator interface covering login, discovery, selection, token modes, expiry, install, remove, info, recovery, progress, and results.
 - systemd, udev, tmpfiles, Windows service scripts, and CI baselines.
 
@@ -29,6 +30,8 @@ npm run tauri dev
 ```
 
 Simulator mode accepts any non-empty username and password. It is intended only for authorized development. Optimized agent builds default to production mode and refuse startup until approved backend and hardware adapters are configured. Credentials remain in agent memory only and are cleared on logout or process exit.
+
+Production configuration is loaded from environment variables. The Linux service reads `/etc/em-station/agent.env`; see [`packaging/linux/agent.env.example`](packaging/linux/agent.env.example).
 
 ## Verify
 

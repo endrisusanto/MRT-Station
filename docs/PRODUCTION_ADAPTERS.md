@@ -15,3 +15,15 @@ Before production release:
 The simulator must be disabled in release builds once production adapters are integrated.
 
 Release builds default to `EM_AGENT_MODE=production` and currently fail closed because those adapters have not been supplied. `EM_AGENT_MODE=simulator` must never be configured by production packages.
+
+## Backend contract baseline
+
+The production authenticator boundary is implemented with native-root TLS and no certificate bypass:
+
+- `POST {EM_BACKEND_URL}/v1/sessions` with `username` and `password`.
+- Response fields: `userId`, `displayName`, `expiresAt`, opaque `sessionToken`, and `permissions`.
+- `DELETE {EM_BACKEND_URL}/v1/sessions/current` with the opaque bearer token.
+- `EM_BACKEND_TIMEOUT_SECONDS` defaults to 15 and is constrained to 1-120 seconds.
+- Plain HTTP is rejected unless `EM_BACKEND_ALLOW_HTTP=true`, which is only for isolated contract tests.
+
+This wire contract is a placeholder boundary and must be reconciled with the approved backend specification before production enablement.

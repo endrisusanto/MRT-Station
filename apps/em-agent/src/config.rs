@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, path::PathBuf};
+use std::{collections::BTreeSet, path::PathBuf, time::Duration};
 
 use anyhow::{Context, bail};
 
@@ -13,6 +13,9 @@ pub struct AgentConfig {
     pub endpoint: PathBuf,
     pub mode: AgentMode,
     pub allowed_uids: BTreeSet<u32>,
+    pub backend_url: Option<String>,
+    pub backend_timeout: Duration,
+    pub backend_allow_http: bool,
 }
 
 impl AgentConfig {
@@ -32,12 +35,39 @@ impl AgentConfig {
                 .unwrap_or_default()
                 .as_str(),
         )?;
+        let backend_url = std::env::var("EM_BACKEND_URL").ok();
+        let backend_timeout = Duration::from_secs(
+            std::env::var("EM_BACKEND_TIMEOUT_SECONDS")
+                .unwrap_or_else(|_| "15".into())
+                .parse()
+                .context("EM_BACKEND_TIMEOUT_SECONDS must be an integer")?,
+        );
+        if backend_timeout.is_zero() || backend_timeout > Duration::from_secs(120) {
+            bail!("EM_BACKEND_TIMEOUT_SECONDS must be between 1 and 120");
+        }
+        let backend_allow_http = parse_bool(
+            "EM_BACKEND_ALLOW_HTTP",
+            std::env::var("EM_BACKEND_ALLOW_HTTP")
+                .as_deref()
+                .unwrap_or("false"),
+        )?;
 
         Ok(Self {
             endpoint,
             mode,
             allowed_uids,
+            backend_url,
+            backend_timeout,
+            backend_allow_http,
         })
+    }
+}
+
+fn parse_bool(name: &str, value: &str) -> anyhow::Result<bool> {
+    match value {
+        "true" | "1" => Ok(true),
+        "false" | "0" => Ok(false),
+        _ => bail!("{name} must be true, false, 1, or 0"),
     }
 }
 
@@ -82,5 +112,12 @@ mod tests {
     #[test]
     fn rejects_invalid_uid() {
         assert!(parse_allowed_uids("1000,operator").is_err());
+    }
+
+    #[test]
+    fn parses_strict_boolean() {
+        assert!(parse_bool("TEST", "true").unwrap());
+        assert!(!parse_bool("TEST", "0").unwrap());
+        assert!(parse_bool("TEST", "yes").is_err());
     }
 }

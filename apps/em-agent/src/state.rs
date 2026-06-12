@@ -1,18 +1,19 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
 };
 
-use chrono::{Duration, Utc};
+use chrono::Utc;
+use em_backend::Authenticator;
 use em_core::{
     AgentRequest, AgentResponse, AgentStatus, AppError, ErrorCode, OperationKind, OperationState,
     OperationStatus, PROTOCOL_VERSION, Session, TokenMode, TokenOperationRequest,
 };
 use em_device::DeviceProvider;
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::SecretString;
 use tokio::sync::{RwLock, Semaphore};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -20,6 +21,7 @@ use uuid::Uuid;
 #[derive(Clone)]
 pub struct AgentState {
     provider: Arc<dyn DeviceProvider>,
+    authenticator: Arc<dyn Authenticator>,
     session: Arc<RwLock<Option<StoredSession>>>,
     operations: Arc<RwLock<HashMap<Uuid, OperationRecord>>>,
     operation_slots: Arc<Semaphore>,
@@ -27,7 +29,8 @@ pub struct AgentState {
 
 struct StoredSession {
     public: Session,
-    secret: SecretString,
+    token: SecretString,
+    permissions: Vec<TokenMode>,
 }
 
 #[derive(Clone)]
@@ -37,9 +40,10 @@ struct OperationRecord {
 }
 
 impl AgentState {
-    pub fn new(provider: Arc<dyn DeviceProvider>) -> Self {
+    pub fn new(provider: Arc<dyn DeviceProvider>, authenticator: Arc<dyn Authenticator>) -> Self {
         Self {
             provider,
+            authenticator,
             session: Arc::new(RwLock::new(None)),
             operations: Arc::new(RwLock::new(HashMap::new())),
             operation_slots: Arc::new(Semaphore::new(4)),
@@ -67,36 +71,35 @@ impl AgentState {
                 Ok(AgentResponse::Devices(self.provider.list_devices().await?))
             }
             AgentRequest::Login(credentials) => {
-                let username = credentials.username.trim();
-                if username.is_empty() || credentials.password.is_empty() {
-                    return Err(AppError::new(
-                        ErrorCode::AuthenticationFailed,
-                        "Username and password are required",
-                    ));
-                }
-                let expires_at = Utc::now() + Duration::minutes(30);
-                let public = Session {
-                    user_id: username.to_owned(),
-                    display_name: username.to_owned(),
-                    expires_at,
-                    remaining_seconds: 30 * 60,
-                };
+                let authenticated = self.authenticator.login(credentials).await?;
+                let public = authenticated.public.clone();
                 *self.session.write().await = Some(StoredSession {
                     public: public.clone(),
-                    secret: SecretString::from(credentials.password),
+                    token: authenticated.token,
+                    permissions: authenticated.permissions,
                 });
-                info!(user = username, "session started");
+                info!(user = %public.user_id, "session started");
                 Ok(AgentResponse::Session(Some(public)))
             }
             AgentRequest::Logout => {
-                *self.session.write().await = None;
+                let session = self.session.write().await.take();
+                if let Some(session) = session {
+                    self.authenticator.logout(&session.token).await?;
+                }
                 info!("session ended");
                 Ok(AgentResponse::Ack)
             }
             AgentRequest::GetSession => Ok(AgentResponse::Session(self.current_session().await)),
             AgentRequest::GetPermissions => {
                 self.require_session().await?;
-                Ok(AgentResponse::Permissions(default_permissions()))
+                let permissions = self
+                    .session
+                    .read()
+                    .await
+                    .as_ref()
+                    .map(|session| session.permissions.clone())
+                    .unwrap_or_default();
+                Ok(AgentResponse::Permissions(permissions))
             }
             AgentRequest::StartOperation { kind, request } => {
                 self.require_session().await?;
@@ -155,14 +158,7 @@ impl AgentState {
                 "Login is required",
             ));
         };
-        let guard = self.session.read().await;
-        let Some(stored) = guard.as_ref() else {
-            return Err(AppError::new(
-                ErrorCode::SessionExpired,
-                "Login is required",
-            ));
-        };
-        if stored.secret.expose_secret().is_empty() || session.remaining_seconds == 0 {
+        if session.remaining_seconds == 0 {
             return Err(AppError::new(ErrorCode::SessionExpired, "Session expired"));
         }
         Ok(())
@@ -301,26 +297,4 @@ impl AgentState {
             record.status.finished_at = Some(Utc::now());
         }
     }
-}
-
-fn default_permissions() -> Vec<TokenMode> {
-    [
-        ("MODE_ENGINEER", "Engineer", "Engineering access"),
-        ("MODE_INT_EM", "Internal EM", "Internal EM access"),
-        ("MODE_ACCESS_SOD", "Access SOD", "SOD access"),
-        (
-            "MODE_RESTRICT_JANUS",
-            "Restricted Janus",
-            "Restricted Janus access",
-        ),
-    ]
-    .into_iter()
-    .map(|(id, name, description)| TokenMode {
-        id: id.into(),
-        display_name: name.into(),
-        description: description.into(),
-        permitted: true,
-        attributes: BTreeMap::new(),
-    })
-    .collect()
 }

@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use anyhow::bail;
 use config::{AgentConfig, AgentMode};
-use em_device::SimulatedDeviceProvider;
+use em_backend::{Authenticator, HttpAuthenticator, SimulatorAuthenticator};
+use em_device::{DeviceProvider, SimulatedDeviceProvider};
 use state::AgentState;
 use tracing_subscriber::EnvFilter;
 
@@ -19,11 +20,22 @@ async fn main() -> anyhow::Result<()> {
         .json()
         .init();
     let config = AgentConfig::from_env()?;
-    let provider = match config.mode {
+    let authenticator: Arc<dyn Authenticator> = match config.mode {
+        AgentMode::Simulator => Arc::new(SimulatorAuthenticator),
+        AgentMode::Production => Arc::new(HttpAuthenticator::new(
+            config
+                .backend_url
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("EM_BACKEND_URL is required in production mode"))?,
+            config.backend_timeout,
+            config.backend_allow_http,
+        )?),
+    };
+    let provider: Arc<dyn DeviceProvider> = match config.mode {
         AgentMode::Simulator => Arc::new(SimulatedDeviceProvider::default()),
         AgentMode::Production => bail!(
-            "production backend and device adapters are not configured; set EM_AGENT_MODE=simulator only for authorized development"
+            "production device adapters are not configured; set EM_AGENT_MODE=simulator only for authorized development"
         ),
     };
-    server::run(&config, AgentState::new(provider)).await
+    server::run(&config, AgentState::new(provider, authenticator)).await
 }

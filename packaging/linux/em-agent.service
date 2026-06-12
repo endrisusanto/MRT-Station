@@ -8,6 +8,8 @@ Type=simple
 ExecStart=/usr/libexec/em-station/em-agent
 Environment=EM_AGENT_ENDPOINT=/run/em-station/agent.sock
 Environment=EM_AGENT_MODE=production
+# Set EM_BACKEND_URL through a protected EnvironmentFile in production.
+EnvironmentFile=-/etc/em-station/agent.env
 Environment=RUST_LOG=info
 RuntimeDirectory=em-station
 RuntimeDirectoryMode=0770
