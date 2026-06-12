@@ -65,3 +65,29 @@ export type OperationStatus = {
   results: DeviceResult[];
 };
 
+export type HealthSnapshot = {
+  status: string;
+  uptimeSeconds: number;
+  connectedDevices: number;
+  activeOperations: number;
+  retainedOperations: number;
+  sessionActive: boolean;
+  eventSequence: number;
+};
+
+export type DiagnosticSnapshot = {
+  generatedAt: string;
+  agentVersion: string;
+  health: HealthSnapshot;
+  devices: Array<Pick<Device, "model" | "transport" | "mode" | "connected">>;
+  retainedEventCount: number;
+};
+
+export type AgentEvent = {
+  sequence: number;
+  occurredAt: string;
+} & (
+  | { event: "devices_changed"; data: Device[] }
+  | { event: "session_changed"; data: Session | null }
+  | { event: "operation_changed"; data: OperationStatus }
+);

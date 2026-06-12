@@ -121,6 +121,61 @@ pub struct OperationStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HealthSnapshot {
+    pub status: String,
+    pub uptime_seconds: u64,
+    pub connected_devices: usize,
+    pub active_operations: usize,
+    pub retained_operations: usize,
+    pub session_active: bool,
+    pub event_sequence: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticSnapshot {
+    pub generated_at: DateTime<Utc>,
+    pub agent_version: String,
+    pub health: HealthSnapshot,
+    pub devices: Vec<DiagnosticDevice>,
+    pub retained_event_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticDevice {
+    pub model: String,
+    pub transport: TransportKind,
+    pub mode: DeviceMode,
+    pub connected: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventBatch {
+    pub events: Vec<AgentEvent>,
+    pub next_sequence: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentEvent {
+    pub sequence: u64,
+    pub occurred_at: DateTime<Utc>,
+    #[serde(flatten)]
+    pub kind: AgentEventKind,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "event", content = "data", rename_all = "snake_case")]
+pub enum AgentEventKind {
+    DevicesChanged(Vec<Device>),
+    SessionChanged(Option<Session>),
+    OperationChanged(OperationStatus),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "method", content = "params", rename_all = "snake_case")]
 pub enum AgentRequest {
     GetAgentStatus,
@@ -139,6 +194,11 @@ pub enum AgentRequest {
     GetOperation {
         operation_id: Uuid,
     },
+    PollEvents {
+        after_sequence: u64,
+        limit: usize,
+    },
+    GetDiagnostics,
     Health,
 }
 
@@ -157,7 +217,9 @@ pub enum AgentResponse {
     Session(Option<Session>),
     Permissions(Vec<TokenMode>),
     Operation(OperationStatus),
+    Events(EventBatch),
+    Diagnostics(DiagnosticSnapshot),
     Ack,
-    Health { status: String },
+    Health(HealthSnapshot),
     Error(AppError),
 }

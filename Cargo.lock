@@ -710,6 +710,7 @@ dependencies = [
  "em-device",
  "em-protocol",
  "secrecy",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -3355,6 +3356,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "time",
+ "tokio",
  "uuid",
 ]
 

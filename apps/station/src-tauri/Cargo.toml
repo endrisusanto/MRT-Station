@@ -19,4 +19,5 @@ em-protocol = { path = "../../../crates/em-protocol" }
 serde.workspace = true
 tauri = { version = "2.9", features = [] }
 time.workspace = true
+tokio.workspace = true
 uuid.workspace = true

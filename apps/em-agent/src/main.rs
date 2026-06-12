@@ -38,5 +38,7 @@ async fn main() -> anyhow::Result<()> {
             &config.device_inventory,
         )?)),
     };
-    server::run(&config, AgentState::new(provider, authenticator)).await
+    let state = AgentState::new(provider, authenticator);
+    state.start_background_tasks();
+    server::run(&config, state).await
 }

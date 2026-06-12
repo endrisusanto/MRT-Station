@@ -1,8 +1,11 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
 import type {
   AgentStatus,
+  AgentEvent,
   Device,
+  HealthSnapshot,
   OperationKind,
   OperationStatus,
   Session,
@@ -28,6 +31,8 @@ export default function App() {
   const [operation, setOperation] = useState<OperationStatus | null>(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
+  const [health, setHealth] = useState<HealthSnapshot | null>(null);
+  const [diagnosticNotice, setDiagnosticNotice] = useState("");
 
   const refresh = useCallback(async () => {
     setError("");
@@ -56,16 +61,45 @@ export default function App() {
   }, [refresh]);
 
   useEffect(() => {
-    if (!operation || terminalStates.has(operation.state)) return;
-    const timer = window.setInterval(async () => {
-      try {
-        setOperation(await api.getOperation(operation.id));
-      } catch (cause) {
-        setError(formatError(cause));
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<AgentEvent>("agent-event", ({ payload }) => {
+      if (payload.event === "devices_changed") {
+        setDevices(payload.data);
+        setSelectedDevices((selected) =>
+          selected.filter((id) => payload.data.some((device) => device.id === id))
+        );
+      } else if (payload.event === "session_changed") {
+        setSession(payload.data);
+        if (!payload.data) {
+          setModes([]);
+          setSelectedModes([]);
+        }
+      } else if (payload.event === "operation_changed") {
+        setOperation((current) => current?.id === payload.data.id ? payload.data : current);
       }
-    }, 400);
+    }).then((cleanup) => {
+      if (disposed) cleanup();
+      else unlisten = cleanup;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    async function loadHealth() {
+      try {
+        setHealth(await api.getHealth());
+      } catch {
+        setHealth(null);
+      }
+    }
+    void loadHealth();
+    const timer = window.setInterval(() => void loadHealth(), 5_000);
     return () => window.clearInterval(timer);
-  }, [operation?.id, operation?.state]);
+  }, [agent?.version]);
 
   const selectedDeviceModels = useMemo(
     () => devices.filter((device) => selectedDevices.includes(device.id)),
@@ -104,6 +138,16 @@ export default function App() {
           expiry ? new Date(`${expiry}T23:59:59`).toISOString() : null
         )
       );
+    } catch (cause) {
+      setError(formatError(cause));
+    }
+  }
+
+  async function copyDiagnostics() {
+    try {
+      const snapshot = await api.getDiagnostics();
+      await navigator.clipboard.writeText(JSON.stringify(snapshot, null, 2));
+      setDiagnosticNotice("Sanitized diagnostics copied");
     } catch (cause) {
       setError(formatError(cause));
     }
@@ -152,6 +196,14 @@ export default function App() {
               <div><p className="eyebrow">Connected hardware</p><h1>Choose devices</h1><p>Select one or more targets for the token operation.</p></div>
               <button className="secondary" onClick={() => void refresh()}>Refresh</button>
             </section>
+            {health && <section className="health-strip">
+              <span><strong>{health.connectedDevices}</strong><small>Connected</small></span>
+              <span><strong>{health.activeOperations}</strong><small>Active jobs</small></span>
+              <span><strong>{health.retainedOperations}</strong><small>Recent jobs</small></span>
+              <span><strong>{Math.floor(health.uptimeSeconds / 60)}m</strong><small>Agent uptime</small></span>
+              <button className="secondary" onClick={() => void copyDiagnostics()}>Copy diagnostics</button>
+            </section>}
+            {diagnosticNotice && <p className="notice">{diagnosticNotice}</p>}
             <section className="device-grid">
               {devices.map((device) => {
                 const selected = selectedDevices.includes(device.id);
@@ -202,4 +254,3 @@ function OperationPanel({ operation, onCancel, onClose }: { operation: Operation
   const progress = operation.total ? Math.round(operation.completed / operation.total * 100) : 0;
   return <div className="modal-backdrop"><section className="operation-panel"><p className="eyebrow">{operation.kind.replace("_", " ")}</p><h2>{terminal ? `Operation ${operation.state}` : "Operation in progress"}</h2><div className="progress"><span style={{ width: `${progress}%` }} /></div><p>{operation.completed} of {operation.total} devices complete</p><div className="result-list">{operation.results.map((result) => <div key={result.deviceId} className={result.success ? "result-ok" : "result-bad"}><strong>{result.deviceId}</strong><span>{result.message}</span>{result.tokenId && <code>{result.tokenId}</code>}</div>)}</div>{terminal ? <button onClick={onClose}>Done</button> : <button className="secondary" onClick={onCancel}>Cancel operation</button>}</section></div>;
 }
-

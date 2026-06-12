@@ -1,8 +1,10 @@
 use chrono::{DateTime, Utc};
 use em_core::{
-    AgentRequest, AgentResponse, AgentStatus, Device, LoginCredentialsDto, OperationKind,
-    OperationStatus, Session, TokenMode, TokenOperationRequest,
+    AgentRequest, AgentResponse, AgentStatus, Device, DiagnosticSnapshot, EventBatch,
+    HealthSnapshot, LoginCredentialsDto, OperationKind, OperationStatus, Session, TokenMode,
+    TokenOperationRequest,
 };
+use tauri::Emitter;
 use uuid::Uuid;
 
 #[cfg(unix)]
@@ -127,6 +129,58 @@ async fn cancel_operation(operation_id: Uuid) -> Result<OperationStatus, String>
     operation_response(call(AgentRequest::CancelOperation { operation_id }).await?)
 }
 
+#[tauri::command]
+async fn get_health() -> Result<HealthSnapshot, String> {
+    match call(AgentRequest::Health).await? {
+        AgentResponse::Health(health) => Ok(health),
+        AgentResponse::Error(error) => Err(error.to_string()),
+        response => Err(unexpected(response)),
+    }
+}
+
+#[tauri::command]
+async fn get_diagnostics() -> Result<DiagnosticSnapshot, String> {
+    match call(AgentRequest::GetDiagnostics).await? {
+        AgentResponse::Diagnostics(snapshot) => Ok(snapshot),
+        AgentResponse::Error(error) => Err(error.to_string()),
+        response => Err(unexpected(response)),
+    }
+}
+
+async fn poll_events(after_sequence: u64) -> Result<EventBatch, String> {
+    match call(AgentRequest::PollEvents {
+        after_sequence,
+        limit: 100,
+    })
+    .await?
+    {
+        AgentResponse::Events(events) => Ok(events),
+        AgentResponse::Error(error) => Err(error.to_string()),
+        response => Err(unexpected(response)),
+    }
+}
+
+async fn run_event_bridge(app: tauri::AppHandle) {
+    let mut cursor = 0;
+    loop {
+        match poll_events(cursor).await {
+            Ok(batch) => {
+                cursor = batch.next_sequence;
+                for event in batch.events {
+                    if app.emit("agent-event", event).is_err() {
+                        return;
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+            }
+            Err(_) => {
+                cursor = 0;
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            }
+        }
+    }
+}
+
 fn operation_response(response: AgentResponse) -> Result<OperationStatus, String> {
     match response {
         AgentResponse::Operation(operation) => Ok(operation),
@@ -138,6 +192,11 @@ fn operation_response(response: AgentResponse) -> Result<OperationStatus, String
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(run_event_bridge(handle));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_agent_status,
             list_devices,
@@ -147,7 +206,9 @@ pub fn run() {
             get_permissions,
             start_operation,
             get_operation,
-            cancel_operation
+            cancel_operation,
+            get_health,
+            get_diagnostics
         ])
         .run(tauri::generate_context!())
         .expect("error while running EM Station");

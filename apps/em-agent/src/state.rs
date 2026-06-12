@@ -1,16 +1,18 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
+    time::{Duration, Instant},
 };
 
 use chrono::Utc;
 use em_backend::Authenticator;
 use em_core::{
-    AgentRequest, AgentResponse, AgentStatus, AppError, ErrorCode, OperationKind, OperationState,
-    OperationStatus, PROTOCOL_VERSION, Session, TokenMode, TokenOperationRequest,
+    AgentEvent, AgentEventKind, AgentRequest, AgentResponse, AgentStatus, AppError,
+    DiagnosticDevice, DiagnosticSnapshot, ErrorCode, EventBatch, HealthSnapshot, OperationKind,
+    OperationState, OperationStatus, PROTOCOL_VERSION, Session, TokenMode, TokenOperationRequest,
 };
 use em_device::DeviceProvider;
 use secrecy::SecretString;
@@ -25,6 +27,10 @@ pub struct AgentState {
     session: Arc<RwLock<Option<StoredSession>>>,
     operations: Arc<RwLock<HashMap<Uuid, OperationRecord>>>,
     operation_slots: Arc<Semaphore>,
+    events: Arc<RwLock<VecDeque<AgentEvent>>>,
+    next_event_sequence: Arc<AtomicU64>,
+    last_devices: Arc<RwLock<Vec<em_core::Device>>>,
+    started_at: Instant,
 }
 
 struct StoredSession {
@@ -47,7 +53,33 @@ impl AgentState {
             session: Arc::new(RwLock::new(None)),
             operations: Arc::new(RwLock::new(HashMap::new())),
             operation_slots: Arc::new(Semaphore::new(4)),
+            events: Arc::new(RwLock::new(VecDeque::new())),
+            next_event_sequence: Arc::new(AtomicU64::new(1)),
+            last_devices: Arc::new(RwLock::new(Vec::new())),
+            started_at: Instant::now(),
         }
+    }
+
+    pub fn start_background_tasks(&self) {
+        let state = self.clone();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(Duration::from_secs(2));
+            loop {
+                ticker.tick().await;
+                match state.provider.list_devices().await {
+                    Ok(devices) => {
+                        let changed = device_signature(&devices)
+                            != device_signature(&state.last_devices.read().await);
+                        if changed {
+                            *state.last_devices.write().await = devices.clone();
+                            state.emit(AgentEventKind::DevicesChanged(devices)).await;
+                        }
+                    }
+                    Err(error) => warn!(%error, "device monitor refresh failed"),
+                }
+                state.cleanup_operations().await;
+            }
+        });
     }
 
     pub async fn handle(&self, request: AgentRequest) -> AgentResponse {
@@ -68,7 +100,9 @@ impl AgentState {
                 update_available: false,
             })),
             AgentRequest::ListDevices => {
-                Ok(AgentResponse::Devices(self.provider.list_devices().await?))
+                let devices = self.provider.list_devices().await?;
+                *self.last_devices.write().await = devices.clone();
+                Ok(AgentResponse::Devices(devices))
             }
             AgentRequest::Login(credentials) => {
                 let authenticated = self.authenticator.login(credentials).await?;
@@ -79,6 +113,8 @@ impl AgentState {
                     permissions: authenticated.permissions,
                 });
                 info!(user = %public.user_id, "session started");
+                self.emit(AgentEventKind::SessionChanged(Some(public.clone())))
+                    .await;
                 Ok(AgentResponse::Session(Some(public)))
             }
             AgentRequest::Logout => {
@@ -87,6 +123,7 @@ impl AgentState {
                     self.authenticator.logout(&session.token).await?;
                 }
                 info!("session ended");
+                self.emit(AgentEventKind::SessionChanged(None)).await;
                 Ok(AgentResponse::Ack)
             }
             AgentRequest::GetSession => Ok(AgentResponse::Session(self.current_session().await)),
@@ -121,7 +158,11 @@ impl AgentState {
                     record.status.state = OperationState::Cancelled;
                     record.status.finished_at = Some(Utc::now());
                 }
-                Ok(AgentResponse::Operation(record.status.clone()))
+                let status = record.status.clone();
+                drop(operations);
+                self.emit(AgentEventKind::OperationChanged(status.clone()))
+                    .await;
+                Ok(AgentResponse::Operation(status))
             }
             AgentRequest::GetOperation { operation_id } => {
                 let operations = self.operations.read().await;
@@ -133,9 +174,16 @@ impl AgentState {
                     })?;
                 Ok(AgentResponse::Operation(status))
             }
-            AgentRequest::Health => Ok(AgentResponse::Health {
-                status: "ok".into(),
-            }),
+            AgentRequest::PollEvents {
+                after_sequence,
+                limit,
+            } => Ok(AgentResponse::Events(
+                self.poll_events(after_sequence, limit).await,
+            )),
+            AgentRequest::GetDiagnostics => {
+                Ok(AgentResponse::Diagnostics(self.diagnostics().await))
+            }
+            AgentRequest::Health => Ok(AgentResponse::Health(self.health().await)),
         }
     }
 
@@ -145,6 +193,8 @@ impl AgentState {
         let remaining = (stored.public.expires_at - Utc::now()).num_seconds();
         if remaining <= 0 {
             *session = None;
+            drop(session);
+            self.emit(AgentEventKind::SessionChanged(None)).await;
             return None;
         }
         stored.public.remaining_seconds = remaining as u64;
@@ -218,6 +268,8 @@ impl AgentState {
                 cancelled: cancelled.clone(),
             },
         );
+        self.emit(AgentEventKind::OperationChanged(status.clone()))
+            .await;
         let state = self.clone();
         tokio::spawn(async move { state.run_operation(id, kind, request, cancelled).await });
         status
@@ -279,22 +331,159 @@ impl AgentState {
     }
 
     async fn set_operation_state(&self, id: Uuid, state: OperationState) {
-        if let Some(record) = self.operations.write().await.get_mut(&id) {
+        let status = if let Some(record) = self.operations.write().await.get_mut(&id) {
             record.status.state = state;
+            Some(record.status.clone())
+        } else {
+            None
+        };
+        if let Some(status) = status {
+            self.emit(AgentEventKind::OperationChanged(status)).await;
         }
     }
 
     async fn push_result(&self, id: Uuid, result: em_core::DeviceResult) {
-        if let Some(record) = self.operations.write().await.get_mut(&id) {
+        let status = if let Some(record) = self.operations.write().await.get_mut(&id) {
             record.status.results.push(result);
             record.status.completed = record.status.results.len();
+            Some(record.status.clone())
+        } else {
+            None
+        };
+        if let Some(status) = status {
+            self.emit(AgentEventKind::OperationChanged(status)).await;
         }
     }
 
     async fn finish_operation(&self, id: Uuid, state: OperationState) {
-        if let Some(record) = self.operations.write().await.get_mut(&id) {
+        let status = if let Some(record) = self.operations.write().await.get_mut(&id) {
             record.status.state = state;
             record.status.finished_at = Some(Utc::now());
+            Some(record.status.clone())
+        } else {
+            None
+        };
+        if let Some(status) = status {
+            self.emit(AgentEventKind::OperationChanged(status)).await;
+        }
+        self.cleanup_operations().await;
+    }
+
+    async fn emit(&self, kind: AgentEventKind) {
+        let sequence = self.next_event_sequence.fetch_add(1, Ordering::Relaxed);
+        let mut events = self.events.write().await;
+        events.push_back(AgentEvent {
+            sequence,
+            occurred_at: Utc::now(),
+            kind,
+        });
+        while events.len() > 512 {
+            events.pop_front();
         }
     }
+
+    async fn poll_events(&self, after_sequence: u64, limit: usize) -> EventBatch {
+        let limit = limit.clamp(1, 100);
+        let events: Vec<_> = self
+            .events
+            .read()
+            .await
+            .iter()
+            .filter(|event| event.sequence > after_sequence)
+            .take(limit)
+            .cloned()
+            .collect();
+        let next_sequence = events
+            .last()
+            .map(|event| event.sequence)
+            .unwrap_or(after_sequence);
+        EventBatch {
+            events,
+            next_sequence,
+        }
+    }
+
+    async fn health(&self) -> HealthSnapshot {
+        let operations = self.operations.read().await;
+        HealthSnapshot {
+            status: "ok".into(),
+            uptime_seconds: self.started_at.elapsed().as_secs(),
+            connected_devices: self.last_devices.read().await.len(),
+            active_operations: operations
+                .values()
+                .filter(|record| {
+                    matches!(
+                        record.status.state,
+                        OperationState::Queued | OperationState::Running
+                    )
+                })
+                .count(),
+            retained_operations: operations.len(),
+            session_active: self.current_session().await.is_some(),
+            event_sequence: self.next_event_sequence.load(Ordering::Relaxed) - 1,
+        }
+    }
+
+    async fn diagnostics(&self) -> DiagnosticSnapshot {
+        let devices = self
+            .last_devices
+            .read()
+            .await
+            .iter()
+            .map(|device| DiagnosticDevice {
+                model: device.model.clone(),
+                transport: device.transport,
+                mode: device.mode,
+                connected: device.connected,
+            })
+            .collect();
+        DiagnosticSnapshot {
+            generated_at: Utc::now(),
+            agent_version: env!("CARGO_PKG_VERSION").into(),
+            health: self.health().await,
+            devices,
+            retained_event_count: self.events.read().await.len(),
+        }
+    }
+
+    async fn cleanup_operations(&self) {
+        let cutoff = Utc::now() - chrono::Duration::hours(1);
+        let mut operations = self.operations.write().await;
+        operations.retain(|_, record| {
+            !is_terminal(record.status.state)
+                || record
+                    .status
+                    .finished_at
+                    .is_none_or(|finished| finished >= cutoff)
+        });
+        if operations.len() <= 100 {
+            return;
+        }
+        let mut terminal: Vec<_> = operations
+            .iter()
+            .filter(|(_, record)| is_terminal(record.status.state))
+            .map(|(id, record)| (*id, record.status.finished_at))
+            .collect();
+        terminal.sort_by_key(|(_, finished)| *finished);
+        let remove_count = operations.len().saturating_sub(100);
+        for (id, _) in terminal.into_iter().take(remove_count) {
+            operations.remove(&id);
+        }
+    }
+}
+
+fn is_terminal(state: OperationState) -> bool {
+    matches!(
+        state,
+        OperationState::Completed | OperationState::Failed | OperationState::Cancelled
+    )
+}
+
+fn device_signature(devices: &[em_core::Device]) -> Vec<(String, bool, Option<String>)> {
+    let mut signature: Vec<_> = devices
+        .iter()
+        .map(|device| (device.id.clone(), device.connected, device.port.clone()))
+        .collect();
+    signature.sort_unstable();
+    signature
 }

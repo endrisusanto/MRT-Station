@@ -38,6 +38,25 @@ mod unix {
         .expect("login request should complete");
         assert!(matches!(login, AgentResponse::Session(Some(_))));
 
+        let login_events = em_protocol::request(
+            &endpoint,
+            &AgentRequest::PollEvents {
+                after_sequence: 0,
+                limit: 10,
+            },
+        )
+        .await
+        .expect("event request should complete");
+        let AgentResponse::Events(login_events) = login_events else {
+            panic!("unexpected event response: {login_events:?}");
+        };
+        assert!(
+            login_events.events.iter().any(|event| matches!(
+                event.kind,
+                em_core::AgentEventKind::SessionChanged(Some(_))
+            ))
+        );
+
         let devices = match em_protocol::request(&endpoint, &AgentRequest::ListDevices)
             .await
             .expect("device request should complete")
@@ -85,6 +104,45 @@ mod unix {
         assert_eq!(final_status.state, OperationState::Completed);
         assert_eq!(final_status.completed, 2);
         assert!(final_status.results.iter().all(|result| result.success));
+
+        let health = em_protocol::request(&endpoint, &AgentRequest::Health)
+            .await
+            .expect("health request should complete");
+        let AgentResponse::Health(health) = health else {
+            panic!("unexpected health response: {health:?}");
+        };
+        assert_eq!(health.status, "ok");
+        assert_eq!(health.active_operations, 0);
+        assert!(health.retained_operations >= 1);
+
+        let operation_events = em_protocol::request(
+            &endpoint,
+            &AgentRequest::PollEvents {
+                after_sequence: login_events.next_sequence,
+                limit: 100,
+            },
+        )
+        .await
+        .expect("operation event request should complete");
+        let AgentResponse::Events(operation_events) = operation_events else {
+            panic!("unexpected event response: {operation_events:?}");
+        };
+        assert!(operation_events.events.iter().any(|event| matches!(
+            &event.kind,
+            em_core::AgentEventKind::OperationChanged(operation)
+                if operation.state == OperationState::Completed
+        )));
+
+        let diagnostics = em_protocol::request(&endpoint, &AgentRequest::GetDiagnostics)
+            .await
+            .expect("diagnostics request should complete");
+        let AgentResponse::Diagnostics(diagnostics) = diagnostics else {
+            panic!("unexpected diagnostics response: {diagnostics:?}");
+        };
+        let serialized = serde_json::to_string(&diagnostics).unwrap();
+        assert!(!serialized.contains("temporary-test-secret"));
+        assert!(!serialized.contains("integration.user"));
+        assert!(!serialized.contains("SIM000001"));
 
         agent.kill().await.expect("agent should stop");
         let _ = tokio::fs::remove_file(endpoint).await;

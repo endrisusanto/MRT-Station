@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  HealthSnapshot,
   AgentStatus,
+  DiagnosticSnapshot,
   Device,
   OperationKind,
   OperationStatus,
@@ -25,6 +27,7 @@ export const api = {
   getOperation: (operationId: string) =>
     invoke<OperationStatus>("get_operation", { operationId }),
   cancelOperation: (operationId: string) =>
-    invoke<OperationStatus>("cancel_operation", { operationId })
+    invoke<OperationStatus>("cancel_operation", { operationId }),
+  getHealth: () => invoke<HealthSnapshot>("get_health"),
+  getDiagnostics: () => invoke<DiagnosticSnapshot>("get_diagnostics")
 };
-
